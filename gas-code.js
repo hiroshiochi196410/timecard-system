@@ -1,21 +1,22 @@
-// 社員コードの先頭ゼロを保持するため、文字列として明示
-const empCode = (params.employeeNumber === undefined || params.employeeNumber === null)
-  ? ''
-  : String(params.employeeNumber);
+    // 社員コード（先頭ゼロ保持のため、文字列として強制）
+    const empCode = (params.employeeNumber === undefined || params.employeeNumber === null)
+      ? ''
+      : String(params.employeeNumber);
 
-sheet.appendRow([
-  params.timestamp || new Date().toISOString(),  // A: タイムスタンプ
-  params.date || '',                              // B: 日付
-  empCode,                                        // C: 社員コード（いったん文字列）
-  params.employeeName || '',                      // D: 氏名
-  params.department || '',                        // E: 部署
-  params.time || '',                              // F: 時刻
-  typeNames[params.type] || params.type || '',   // G: 種別
-  params.deviceId || ''                           // H: デバイスID
-]);
+    // 次の空行に setValues で書き込む（appendRowは使わない）
+    const nextRow = sheet.getLastRow() + 1;
 
-// 追加した行の「社員コード」セルをテキスト扱いにして、値を再セット（これで0101が落ちない）
-const lastRow = sheet.getLastRow();
-const empCell = sheet.getRange(lastRow, 3); // C列
-empCell.setNumberFormat('@');
-empCell.setValue(empCode);
+    // C列（社員コード）を先にテキスト形式に固定
+    sheet.getRange(nextRow, 3).setNumberFormat('@');
+
+    // A:タイムスタンプ B:日付 C:社員コード D:氏名 E:部署 F:時刻 G:種別 H:デバイスID
+    sheet.getRange(nextRow, 1, 1, 8).setValues([[
+      params.timestamp || new Date().toISOString(),  // A
+      params.date || '',                              // B
+      empCode ? ("'" + empCode) : '',                 // C ← '0101 で文字列強制
+      params.employeeName || '',                      // D
+      params.department || '',                        // E
+      params.time || '',                              // F
+      typeNames[params.type] || params.type || '',    // G
+      params.deviceId || ''                           // H
+    ]]);
