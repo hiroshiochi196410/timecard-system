@@ -5,7 +5,7 @@
 
 // スプレッドシートID（URLから取得）
 // 例: https://docs.google.com/spreadsheets/d/【このID部分】/edit
-const SPREADSHEET_ID = 'YOUR_SPREADSHEET_ID_HERE';
+const SPREADSHEET_ID = '19fdY39GIHSsGXaXmLCUOFn4nJI3GM-sZFFylZ8_YN4s';
 
 // シート名
 const SHEET_NAME = 'タイムカード';
