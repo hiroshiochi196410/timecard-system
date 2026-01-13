@@ -81,17 +81,45 @@ const empCode = (params.employeeNumber === undefined || params.employeeNumber ==
   ? ''
   : String(params.employeeNumber);
 
+const TZ = 'Asia/Tokyo';
+
+// 日付を yyyyMMdd に統一（例: 2026-01-13 / 2026/1/13 / 20260113 を吸収）
+const toYYYYMMDD = (input) => {
+  if (!input) return '';
+  const s = String(input).trim();
+  if (/^\d{8}$/.test(s)) return s;
+
+  // YYYY-MM-DD / YYYY/M/D
+  const m = s.match(/^(\d{4})[-\/](\d{1,2})[-\/](\d{1,2})/);
+  if (m) {
+    const y = Number(m[1]);
+    const mo = Number(m[2]);
+    const d = Number(m[3]);
+    return Utilities.formatDate(new Date(y, mo - 1, d), TZ, 'yyyyMMdd');
+  }
+
+  // それ以外（ISO日時など）
+  const dt = new Date(s);
+  if (!isNaN(dt.getTime())) return Utilities.formatDate(dt, TZ, 'yyyyMMdd');
+
+  // 万一パース不能ならそのまま
+  return s;
+};
+
+const dateYMD = toYYYYMMDD(params.date) || toYYYYMMDD(params.timestamp) || '';
+
 // appendRowは数値化で先頭ゼロが落ちることがあるため、setValuesで書き込む
 const nextRow = sheet.getLastRow() + 1;
 
 // C列（社員コード）を先にテキスト形式に固定
-sheet.getRange(nextRow, 3).setNumberFormat('@');
+sheet.getRange(nextRow, 2).setNumberFormat('@'); // B列（日付）
+    sheet.getRange(nextRow, 3).setNumberFormat('@'); // C列（社員コード）
 
 // 1行分を書き込み（社員コードは '0101 のように文字列強制）
 sheet.getRange(nextRow, 1, 1, 8).setValues([[
   params.timestamp || new Date().toISOString(),  // A: タイムスタンプ
-  params.date || '',                              // B: 日付
-  "'" + (params.employeeNumber || ''),            // C: 社員コード（先頭ゼロ保持）
+  dateYMD || '',                                  // B: 日付（yyyymmdd）
+  empCode ? ("'" + empCode) : '',                 // C: 社員コード（先頭ゼロ保持）
   params.employeeName || '',                      // D: 氏名
   params.department || '',                        // E: 部署
   params.time || '',                              // F: 時刻
@@ -135,7 +163,7 @@ function handleGetData() {
     for (let i = 1; i < data.length; i++) {
       records.push({
         timestamp: data[i][0],
-        date: data[i][1],
+        date: String((disp[i] && disp[i][1]) || '').trim(),
         employeeNumber: String((disp[i] && disp[i][2]) || '').trim(),
         employeeName: data[i][3],
         department: data[i][4],
