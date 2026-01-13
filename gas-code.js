@@ -2,18 +2,17 @@
 // タイムカードAPI - Google Apps Script
 // ========================================
 
-// スプレッドシートID（お使いのスプレッドシートのURLから取得）
-const SPREADSHEET_ID = '1FmVj1DJKZMjCk1920IrFj6PXRPAW8cKFo0MeIe3_c3c';
+// スプレッドシートID
+const SPREADSHEET_ID = '19fdY39GIHSsGXaXmLCUOFn4nJI3GM-sZFFylZ8_YN4s';
 
-// シート名
-const SHEET_NAME = 'タイムカード';
+// シート名（最初のシートを使用）
+const SHEET_NAME = null; // nullの場合は最初のシートを使用
 
 // ========================================
 // GETリクエスト処理
 // ========================================
 function doGet(e) {
   try {
-    // パラメータがない場合
     if (!e || !e.parameter) {
       return createResponse({ success: false, error: 'パラメータがありません' });
     }
@@ -29,7 +28,7 @@ function doGet(e) {
       if (e.parameter.employeeNumber) {
         return handlePunch(e.parameter);
       }
-      return createResponse({ success: false, error: '不明なアクション: ' + action });
+      return createResponse({ success: false, error: '不明なアクション' });
     }
   } catch (error) {
     return createResponse({ success: false, error: error.message });
@@ -54,22 +53,16 @@ function doPost(e) {
 function handlePunch(params) {
   try {
     const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
-    let sheet = ss.getSheetByName(SHEET_NAME);
+    let sheet;
     
-    // シートがなければ作成
+    if (SHEET_NAME) {
+      sheet = ss.getSheetByName(SHEET_NAME);
+    } else {
+      sheet = ss.getSheets()[0]; // 最初のシート
+    }
+    
     if (!sheet) {
-      sheet = ss.insertSheet(SHEET_NAME);
-      sheet.appendRow([
-        'タイムスタンプ',
-        '社員番号',
-        '氏名',
-        '部署',
-        '日付',
-        '時刻',
-        '種別',
-        'デバイスID'
-      ]);
-      sheet.getRange(1, 1, 1, 8).setFontWeight('bold').setBackground('#4285f4').setFontColor('white');
+      return createResponse({ success: false, error: 'シートが見つかりません' });
     }
     
     // 種別の日本語変換
@@ -80,16 +73,17 @@ function handlePunch(params) {
       'return': '戻り'
     };
     
-    // データを追加
+    // 現在のスプレッドシートの列順に合わせる
+    // A:タイムスタンプ B:日付 C:社員コード D:氏名 E:部署 F:時刻 G:種別 H:デバイスID
     sheet.appendRow([
-      params.timestamp || new Date().toISOString(),
-      params.employeeNumber || '',
-      params.employeeName || '',
-      params.department || '',
-      params.date || '',
-      params.time || '',
-      typeNames[params.type] || params.type || '',
-      params.deviceId || ''
+      params.timestamp || new Date().toISOString(),  // A: タイムスタンプ
+      params.date || '',                              // B: 日付
+      params.employeeNumber || '',                    // C: 社員コード
+      params.employeeName || '',                      // D: 氏名
+      params.department || '',                        // E: 部署
+      params.time || '',                              // F: 時刻
+      typeNames[params.type] || params.type || '',   // G: 種別
+      params.deviceId || ''                           // H: デバイスID
     ]);
     
     return createResponse({ 
@@ -108,7 +102,13 @@ function handlePunch(params) {
 function handleGetData() {
   try {
     const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
-    const sheet = ss.getSheetByName(SHEET_NAME);
+    let sheet;
+    
+    if (SHEET_NAME) {
+      sheet = ss.getSheetByName(SHEET_NAME);
+    } else {
+      sheet = ss.getSheets()[0];
+    }
     
     if (!sheet) {
       return createResponse({ success: true, data: [] });
@@ -120,10 +120,10 @@ function handleGetData() {
     for (let i = 1; i < data.length; i++) {
       records.push({
         timestamp: data[i][0],
-        employeeNumber: data[i][1],
-        employeeName: data[i][2],
-        department: data[i][3],
-        date: data[i][4],
+        date: data[i][1],
+        employeeNumber: data[i][2],
+        employeeName: data[i][3],
+        department: data[i][4],
         time: data[i][5],
         type: data[i][6],
         deviceId: data[i][7]
@@ -155,7 +155,7 @@ function testPunch() {
     employeeName: 'テスト太郎',
     department: 'テスト部',
     date: '2026-01-13',
-    time: '20:00:00',
+    time: '21:00:00',
     type: 'checkin',
     deviceId: 'test'
   });
