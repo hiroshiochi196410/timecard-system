@@ -1,28 +1,35 @@
 // ========================================
-// Google Apps Script - タイムカードAPI
-// このコードをGoogle Apps Scriptに貼り付けてください
+// タイムカードAPI - Google Apps Script
 // ========================================
 
-// スプレッドシートID（URLから取得）
-// 例: https://docs.google.com/spreadsheets/d/【このID部分】/edit
-const SPREADSHEET_ID = '19fdY39GIHSsGXaXmLCUOFn4nJI3GM-sZFFylZ8_YN4s';
+// スプレッドシートID（お使いのスプレッドシートのURLから取得）
+const SPREADSHEET_ID = '1FmVj1DJKZMjCk1920IrFj6PXRPAW8cKFo0MeIe3_c3c';
 
 // シート名
 const SHEET_NAME = 'タイムカード';
 
 // ========================================
-// GETリクエスト処理（メイン）
+// GETリクエスト処理
 // ========================================
 function doGet(e) {
   try {
+    // パラメータがない場合
+    if (!e || !e.parameter) {
+      return createResponse({ success: false, error: 'パラメータがありません' });
+    }
+    
     const action = e.parameter.action;
     
     if (action === 'punch') {
       return handlePunch(e.parameter);
     } else if (action === 'getData') {
-      return handleGetData(e.parameter);
+      return handleGetData();
     } else {
-      return createResponse({ success: false, error: '不明なアクション' });
+      // actionがなくてもpunchとして処理
+      if (e.parameter.employeeNumber) {
+        return handlePunch(e.parameter);
+      }
+      return createResponse({ success: false, error: '不明なアクション: ' + action });
     }
   } catch (error) {
     return createResponse({ success: false, error: error.message });
@@ -30,7 +37,7 @@ function doGet(e) {
 }
 
 // ========================================
-// POSTリクエスト処理（バックアップ用）
+// POSTリクエスト処理
 // ========================================
 function doPost(e) {
   try {
@@ -45,84 +52,88 @@ function doPost(e) {
 // 打刻データ保存
 // ========================================
 function handlePunch(params) {
-  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
-  let sheet = ss.getSheetByName(SHEET_NAME);
-  
-  // シートがなければ作成
-  if (!sheet) {
-    sheet = ss.insertSheet(SHEET_NAME);
-    // ヘッダー行を追加
+  try {
+    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    let sheet = ss.getSheetByName(SHEET_NAME);
+    
+    // シートがなければ作成
+    if (!sheet) {
+      sheet = ss.insertSheet(SHEET_NAME);
+      sheet.appendRow([
+        'タイムスタンプ',
+        '社員番号',
+        '氏名',
+        '部署',
+        '日付',
+        '時刻',
+        '種別',
+        'デバイスID'
+      ]);
+      sheet.getRange(1, 1, 1, 8).setFontWeight('bold').setBackground('#4285f4').setFontColor('white');
+    }
+    
+    // 種別の日本語変換
+    const typeNames = {
+      'checkin': '出勤',
+      'checkout': '退勤',
+      'out': '外出',
+      'return': '戻り'
+    };
+    
+    // データを追加
     sheet.appendRow([
-      'タイムスタンプ',
-      '社員番号',
-      '氏名',
-      '部署',
-      '日付',
-      '時刻',
-      '種別',
-      'デバイスID'
+      params.timestamp || new Date().toISOString(),
+      params.employeeNumber || '',
+      params.employeeName || '',
+      params.department || '',
+      params.date || '',
+      params.time || '',
+      typeNames[params.type] || params.type || '',
+      params.deviceId || ''
     ]);
-    // ヘッダー行の書式設定
-    sheet.getRange(1, 1, 1, 8).setFontWeight('bold').setBackground('#4285f4').setFontColor('white');
+    
+    return createResponse({ 
+      success: true, 
+      message: 'データを保存しました'
+    });
+    
+  } catch (error) {
+    return createResponse({ success: false, error: error.message });
   }
-  
-  // 種別の日本語変換
-  const typeNames = {
-    'checkin': '出勤',
-    'checkout': '退勤',
-    'out': '外出',
-    'return': '戻り'
-  };
-  
-  // データを追加
-  sheet.appendRow([
-    params.timestamp || new Date().toISOString(),
-    params.employeeNumber || '',
-    params.employeeName || '',
-    params.department || '',
-    params.date || '',
-    params.time || '',
-    typeNames[params.type] || params.type || '',
-    params.deviceId || ''
-  ]);
-  
-  return createResponse({ 
-    success: true, 
-    message: 'データを保存しました',
-    timestamp: new Date().toISOString()
-  });
 }
 
 // ========================================
-// データ取得（管理者用）
+// データ取得
 // ========================================
-function handleGetData(params) {
-  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
-  const sheet = ss.getSheetByName(SHEET_NAME);
-  
-  if (!sheet) {
-    return createResponse({ success: true, data: [] });
+function handleGetData() {
+  try {
+    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    const sheet = ss.getSheetByName(SHEET_NAME);
+    
+    if (!sheet) {
+      return createResponse({ success: true, data: [] });
+    }
+    
+    const data = sheet.getDataRange().getValues();
+    const records = [];
+    
+    for (let i = 1; i < data.length; i++) {
+      records.push({
+        timestamp: data[i][0],
+        employeeNumber: data[i][1],
+        employeeName: data[i][2],
+        department: data[i][3],
+        date: data[i][4],
+        time: data[i][5],
+        type: data[i][6],
+        deviceId: data[i][7]
+      });
+    }
+    
+    return createResponse({ success: true, data: records });
+  } catch (error) {
+    return createResponse({ success: false, error: error.message });
   }
-  
-  const data = sheet.getDataRange().getValues();
-  const headers = data[0];
-  const records = [];
-  
-  for (let i = 1; i < data.length; i++) {
-    const row = data[i];
-    records.push({
-      timestamp: row[0],
-      employeeNumber: row[1],
-      employeeName: row[2],
-      department: row[3],
-      date: row[4],
-      time: row[5],
-      type: row[6],
-      deviceId: row[7]
-    });
-  }
-  
-  return createResponse({ success: true, data: records });
 }
 
 // ========================================
@@ -135,20 +146,18 @@ function createResponse(data) {
 }
 
 // ========================================
-// テスト用関数
+// テスト関数
 // ========================================
 function testPunch() {
-  const testParams = {
+  const result = handlePunch({
     timestamp: new Date().toISOString(),
     employeeNumber: '9999',
     employeeName: 'テスト太郎',
-    department: '本部',
-    date: Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd'),
-    time: Utilities.formatDate(new Date(), 'Asia/Tokyo', 'HH:mm:ss'),
+    department: 'テスト部',
+    date: '2026-01-13',
+    time: '20:00:00',
     type: 'checkin',
-    deviceId: 'test-device'
-  };
-  
-  const result = handlePunch(testParams);
+    deviceId: 'test'
+  });
   Logger.log(result.getContent());
 }
