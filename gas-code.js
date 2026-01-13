@@ -91,7 +91,7 @@ sheet.getRange(nextRow, 3).setNumberFormat('@');
 sheet.getRange(nextRow, 1, 1, 8).setValues([[
   params.timestamp || new Date().toISOString(),  // A: タイムスタンプ
   params.date || '',                              // B: 日付
-  empCode ? ("'" + empCode) : '',                 // C: 社員コード（先頭ゼロ保持）
+  "'" + (params.employeeNumber || ''),            // C: 社員コード（先頭ゼロ保持）
   params.employeeName || '',                      // D: 氏名
   params.department || '',                        // E: 部署
   params.time || '',                              // F: 時刻
