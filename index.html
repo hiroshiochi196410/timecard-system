@@ -3759,11 +3759,21 @@ ReactDOM.render(/*#__PURE__*/React.createElement(TimeCardApp, null), document.ge
                                 date = date.replace(/\//g, '-');
                             }
 
-                            // 日付フォーマットチェック
-                            if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
-                                errors.push(`行${i + 1}: 日付のフォーマットが不正です（YYYY-MM-DD または YYYY/MM/DD 形式で入力）`);
+                            // 日付フォーマットチェック（YYYY-MM-DD / YYYY/MM/DD / YYYYMMDD を許容）
+                            let normalizedDate = String(date || '').trim();
+                            if (/^\d{8}$/.test(normalizedDate)) {
+                                normalizedDate = normalizedDate.replace(/^(\d{4})(\d{2})(\d{2})$/, '$1-$2-$3');
+                            } else if (/^\d{4}\/\d{2}\/\d{2}$/.test(normalizedDate)) {
+                                normalizedDate = normalizedDate.replace(/\//g, '-');
+                            }
+
+                            if (!/^\d{4}-\d{2}-\d{2}$/.test(normalizedDate)) {
+                                errors.push(`行${i + 1}: 日付のフォーマットが不正です（YYYY-MM-DD / YYYY/MM/DD / YYYYMMDD で入力）`);
                                 continue;
                             }
+
+                            // 以降は正規化済みの日付を使う
+                            date = normalizedDate;
 
                             // 時刻フォーマットの正規化（HH:MM:SS → HH:MM）
                             if (/^\d{2}:\d{2}:\d{2}$/.test(startTime)) {
