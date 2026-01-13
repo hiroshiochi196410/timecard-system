@@ -1,0 +1,36 @@
+{
+  "version": 2,
+  "builds": [
+    {
+      "src": "index.html",
+      "use": "@vercel/static"
+    },
+    {
+      "src": "timecard.html", 
+      "use": "@vercel/static"
+    }
+  ],
+  "routes": [
+    {
+      "src": "/timecard",
+      "dest": "/timecard.html",
+      "headers": {
+        "cache-control": "s-maxage=0"
+      }
+    },
+    {
+      "src": "/timecard/(.*)",
+      "dest": "/timecard.html", 
+      "headers": {
+        "cache-control": "s-maxage=0"
+      }
+    },
+    {
+      "src": "/(.*)",
+      "dest": "/index.html",
+      "headers": {
+        "cache-control": "s-maxage=0"
+      }
+    }
+  ]
+}
