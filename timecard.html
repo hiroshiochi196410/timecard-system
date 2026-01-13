@@ -933,20 +933,31 @@
                     deviceId: deviceId
                 };
 
-                fetch(SHEETS_API_URL, {
-                    method: 'POST',
-                    mode: 'cors',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify(payload)
+                // Google Apps Script用のURL（GETリクエスト方式）
+                const params = new URLSearchParams({
+                    action: 'punch',
+                    timestamp: payload.timestamp,
+                    employeeNumber: payload.employeeNumber,
+                    employeeName: payload.employeeName,
+                    department: payload.department,
+                    date: payload.date,
+                    time: payload.time,
+                    type: payload.type,
+                    deviceId: payload.deviceId
+                });
+                
+                const url = SHEETS_API_URL + '?' + params.toString();
+                
+                fetch(url, {
+                    method: 'GET',
+                    mode: 'cors'
                 })
                 .then(response => response.json())
-                .then(data => {
-                    if (data.success) {
-                        debug('Google Sheets送信成功');
+                .then(result => {
+                    if (result.success) {
+                        debug('Google Sheets送信成功 ✓');
                     } else {
-                        debug('Google Sheets送信失敗: ' + data.error);
+                        debug('Google Sheets送信失敗: ' + (result.error || '不明'));
                     }
                 })
                 .catch(error => {
