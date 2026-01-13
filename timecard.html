@@ -514,7 +514,6 @@
                     </div>
 
                     <button class="download" onclick="downloadCSV()">📊 CSV ダウンロード</button>
-                    <button class="download" onclick="downloadWorkCSV()">🧾 勤務CSV（出退＋外出戻り）</button>
                 </div>
             </div>
         </div>
@@ -587,11 +586,11 @@
                     </div>
                     <div class="control-group">
                         <label class="control-label">　</label>
-                        <button class="btn btn-success" onclick="exportAdminCSV()">📊 CSV出力</button>
+                        <div style="display:flex; gap:8px; flex-wrap:wrap;"><button class="btn" id="adminViewLogBtn" onclick="setAdminView('log')">📋 ログ表示</button><button class="btn" id="adminViewSummaryBtn" onclick="setAdminView('summary')" style="background:#0ea5e9;">🧾 出勤/退勤サマリー</button><button class="btn btn-success" onclick="exportAdminCSV()">📊 ログCSV</button><button class="btn btn-success" onclick="exportSummaryCSV()">🧾 サマリーCSV</button></div>
                     </div>
                 </div>
 
-                <div style="max-height: 500px; overflow-y: auto;">
+                <div id="adminLogView" style="max-height: 500px; overflow-y: auto;">
                     <table class="records-table">
                         <thead>
                             <tr>
@@ -612,6 +611,28 @@
                         </tbody>
                     </table>
                 </div>
+                <div id="adminSummaryView" style="display:none; max-height: 500px; overflow-y: auto;">
+                    <table class="records-table">
+                        <thead>
+                            <tr>
+                                <th>日付</th>
+                                <th>社員番号</th>
+                                <th>氏名</th>
+                                <th>部署</th>
+                                <th>出勤</th>
+                                <th>退勤</th>
+                                <th>外出1</th>
+                                <th>戻り1</th>
+                                <th>外出2</th>
+                                <th>戻り2</th>
+                            </tr>
+                        </thead>
+                        <tbody id="summaryBody">
+                            <tr><td colspan="10" class="no-data">データを読み込み中...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+
             </div>
 
             <div class="card">
@@ -631,6 +652,8 @@
         let isProcessing = false;
         let currentUser = null;
         let deviceId = null;
+        let adminView = 'log';
+        let lastFilteredRecords = [];
 
         // 社員マスタ（40名対応・退職者管理）
         var employees = {
@@ -748,6 +771,7 @@
                 adminMode.classList.add('active');
                 toggleBtns[1].classList.add('active');
                 refreshAdminData();
+                setAdminView(adminView || 'log');
                 debug('管理者モードに切り替え');
             }
         }
@@ -1131,126 +1155,6 @@
             }
         }
 
-
-        // 勤務CSV（1日1行：出勤/退勤＋外出/戻り）をダウンロード
-        // 形式: 日付,社員番号,出勤時刻,外出時刻1,戻り時刻1,外出時刻2,戻り時刻2,退勤時刻
-        function downloadWorkCSV() {
-            try {
-                if (!Array.isArray(data) || data.length === 0) {
-                    showMsg('ダウンロードするデータがありません', true);
-                    return;
-                }
-
-                // 同一日・同一社員でまとめる（A: 最初の出勤＋最後の退勤）
-                const byKey = new Map();
-
-                const toSec = (t) => {
-                    // HH:MM or HH:MM:SS
-                    if (!t) return null;
-                    const parts = String(t).split(':').map(x => parseInt(x, 10));
-                    if (parts.length < 2 || parts.some(Number.isNaN)) return null;
-                    const [hh, mm, ss] = [parts[0], parts[1], parts[2] || 0];
-                    return hh * 3600 + mm * 60 + ss;
-                };
-
-                // type の表記ゆれに備える（英キー/日本語どちらでも）
-                const normType = (tp) => {
-                    const t = String(tp || '').trim();
-                    if (t === 'checkin' || t === '出勤') return 'checkin';
-                    if (t === 'checkout' || t === '退勤') return 'checkout';
-                    if (t === 'out' || t === '外出') return 'out';
-                    if (t === 'return' || t === '戻り') return 'return';
-                    return t;
-                };
-
-                data.forEach(r => {
-                    const date = (r.date || '').trim();
-                    const emp = (r.emp || '').toString().trim();
-                    if (!date || !emp) return;
-
-                    const key = date + '||' + emp;
-                    if (!byKey.has(key)) {
-                        byKey.set(key, { date, emp, logs: [] });
-                    }
-                    byKey.get(key).logs.push({
-                        type: normType(r.type),
-                        time: (r.time || '').trim(),
-                        sec: toSec(r.time)
-                    });
-                });
-
-                // 出力作成
-                const header = '日付,社員番号,出勤時刻,外出時刻1,戻り時刻1,外出時刻2,戻り時刻2,退勤時刻';
-                const lines = [header];
-
-                // keyを日付→社員番号で並べる
-                const keys = Array.from(byKey.keys()).sort((a, b) => {
-                    const [da, ea] = a.split('||');
-                    const [db, eb] = b.split('||');
-                    if (da !== db) return da < db ? -1 : 1;
-                    return ea < eb ? -1 : (ea > eb ? 1 : 0);
-                });
-
-                keys.forEach(key => {
-                    const g = byKey.get(key);
-                    const logs = g.logs
-                        .filter(x => x.sec !== null)
-                        .sort((x, y) => x.sec - y.sec);
-
-                    const checkins = logs.filter(x => x.type === 'checkin');
-                    const checkouts = logs.filter(x => x.type === 'checkout');
-
-                    const start = checkins.length ? checkins[0].time : '';
-                    const end = checkouts.length ? checkouts[checkouts.length - 1].time : '';
-
-                    // 外出/戻りを順番にペアリング（最大2回分）
-                    const outs = logs.filter(x => x.type === 'out');
-                    const returns = logs.filter(x => x.type === 'return');
-
-                    // 1つずつ順に取る（out -> 次のreturn）
-                    const pairs = [];
-                    let ri = 0;
-                    for (let oi = 0; oi < outs.length; oi++) {
-                        const outRec = outs[oi];
-                        while (ri < returns.length && returns[ri].sec < outRec.sec) ri++;
-                        const retRec = (ri < returns.length) ? returns[ri] : null;
-                        pairs.push([outRec.time, retRec ? retRec.time : '']);
-                        if (retRec) ri++;
-                        if (pairs.length >= 2) break;
-                    }
-
-                    const out1 = pairs[0] ? pairs[0][0] : '';
-                    const ret1 = pairs[0] ? pairs[0][1] : '';
-                    const out2 = pairs[1] ? pairs[1][0] : '';
-                    const ret2 = pairs[1] ? pairs[1][1] : '';
-
-                    // CSV（日付はそのまま。必要ならここで YYYY-MM-DD に正規化も可）
-                    const row = [g.date, g.emp, start, out1, ret1, out2, ret2, end];
-                    lines.push(row.join(','));
-                });
-
-                const csvContent = lines.join('\n');
-                const bom = '\uFEFF';
-                const blob = new Blob([bom + csvContent], { type: 'text/csv;charset=utf-8;' });
-                const url = URL.createObjectURL(blob);
-
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = `work_summary_${new Date().toISOString().slice(0,10)}.csv`;
-                document.body.appendChild(a);
-                a.click();
-                document.body.removeChild(a);
-                URL.revokeObjectURL(url);
-
-                showMsg('勤務CSVをダウンロードしました（出退＋外出戻り）');
-            } catch (e) {
-                console.error(e);
-                showMsg('勤務CSVダウンロードに失敗しました', true);
-            }
-        }
-
-
-
         // ===== 管理者モード機能 =====
 
         // 管理者データ更新
@@ -1422,7 +1326,9 @@
                 });
             }
 
+            lastFilteredRecords = filtered;
             displayRecords(filtered);
+            renderAdminSummary(filtered);
         }
 
         // レコード表示
@@ -1460,6 +1366,177 @@
                 `;
             }).join('');
         }
+
+        // ===== 管理者表示：ログ / サマリー切替 =====
+        function setAdminView(view) {
+            adminView = view || 'log';
+            const logDiv = document.getElementById('adminLogView');
+            const sumDiv = document.getElementById('adminSummaryView');
+            const logBtn = document.getElementById('adminViewLogBtn');
+            const sumBtn = document.getElementById('adminViewSummaryBtn');
+
+            if (adminView === 'summary') {
+                if (logDiv) logDiv.style.display = 'none';
+                if (sumDiv) sumDiv.style.display = 'block';
+                if (logBtn) logBtn.style.background = '#4f46e5';
+                if (sumBtn) sumBtn.style.background = '#0ea5e9';
+            } else {
+                if (logDiv) logDiv.style.display = 'block';
+                if (sumDiv) sumDiv.style.display = 'none';
+                if (logBtn) logBtn.style.background = '#0ea5e9';
+                if (sumBtn) sumBtn.style.background = '#4f46e5';
+            }
+        }
+
+        function normalizeDateToDash(dateStr) {
+            if (!dateStr) return '';
+            const s = String(dateStr).trim();
+            if (/^\d{8}$/.test(s)) return s.slice(0,4) + '-' + s.slice(4,6) + '-' + s.slice(6,8);
+            if (/^\d{4}\/\d{1,2}\/\d{1,2}$/.test(s)) {
+                const parts = s.split('/');
+                const y = parts[0];
+                const m = parts[1].padStart(2,'0');
+                const d = parts[2].padStart(2,'0');
+                return `${y}-${m}-${d}`;
+            }
+            return s; // すでに YYYY-MM-DD の想定
+        }
+
+        // 1日1行（A方式）：最初の出勤 + 最後の退勤、外出/戻りは時刻順に最大2ペア
+        function buildDailySummary(records) {
+            const map = new Map();
+
+            records.forEach(r => {
+                const dateKey = normalizeDateToDash(r.date);
+                const empKey = String(r.emp || '').trim();
+                if (!dateKey || !empKey) return;
+
+                const key = dateKey + '|' + empKey;
+                if (!map.has(key)) {
+                    map.set(key, {
+                        date: dateKey,
+                        emp: empKey,
+                        name: r.empName || empKey,
+                        dept: r.empDept || '',
+                        checkins: [],
+                        checkouts: [],
+                        outs: [],
+                        returns: []
+                    });
+                }
+                const g = map.get(key);
+                g.name = r.empName || g.name;
+                g.dept = r.empDept || g.dept;
+
+                const t = String(r.time || '').trim();
+                if (r.type === 'checkin') g.checkins.push(t);
+                else if (r.type === 'checkout') g.checkouts.push(t);
+                else if (r.type === 'out') g.outs.push(t);
+                else if (r.type === 'return') g.returns.push(t);
+            });
+
+            // 並び：日付→社員番号
+            const rows = Array.from(map.values()).sort((a,b) => {
+                if (a.date !== b.date) return a.date.localeCompare(b.date);
+                return a.emp.localeCompare(b.emp);
+            }).map(g => {
+                const checkin = g.checkins.length ? g.checkins.sort()[0] : '';
+                const checkout = g.checkouts.length ? g.checkouts.sort().slice(-1)[0] : '';
+
+                const outs = g.outs.slice().sort();
+                const rets = g.returns.slice().sort();
+
+                return {
+                    date: g.date,
+                    emp: g.emp,
+                    name: g.name,
+                    dept: g.dept,
+                    checkin,
+                    checkout,
+                    out1: outs[0] || '',
+                    return1: rets[0] || '',
+                    out2: outs[1] || '',
+                    return2: rets[1] || ''
+                };
+            });
+
+            return rows;
+        }
+
+        function renderAdminSummary(records) {
+            const tbody = document.getElementById('summaryBody');
+            if (!tbody) return;
+
+            const summaries = buildDailySummary(records || []);
+            if (summaries.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="10" class="no-data">該当データがありません</td></tr>';
+                return;
+            }
+
+            tbody.innerHTML = summaries.map(s => `
+                <tr>
+                    <td>${s.date}</td>
+                    <td>${s.emp}</td>
+                    <td>${s.name}</td>
+                    <td>${s.dept}</td>
+                    <td><strong>${s.checkin}</strong></td>
+                    <td><strong>${s.checkout}</strong></td>
+                    <td>${s.out1}</td>
+                    <td>${s.return1}</td>
+                    <td>${s.out2}</td>
+                    <td>${s.return2}</td>
+                </tr>
+            `).join('');
+        }
+
+        // サマリーCSV（1日1行：出勤/退勤 + 外出/戻り）
+        function exportSummaryCSV() {
+            try {
+                const records = (lastFilteredRecords && lastFilteredRecords.length) ? lastFilteredRecords : allRecords;
+                const summaries = buildDailySummary(records);
+
+                if (summaries.length === 0) {
+                    showMsg('出力するデータがありません', true);
+                    return;
+                }
+
+                const headers = ['日付','従業員番号','氏名','部署','出勤時刻','退勤時刻','外出1','戻り1','外出2','戻り2'];
+                const lines = [headers.join(',')];
+
+                summaries.forEach(s => {
+                    lines.push([
+                        s.date,
+                        s.emp,
+                        s.name,
+                        s.dept,
+                        s.checkin,
+                        s.checkout,
+                        s.out1,
+                        s.return1,
+                        s.out2,
+                        s.return2
+                    ].map(v => (v ?? '')).join(','));
+                });
+
+                const csvContent = '\uFEFF' + lines.join('\n');
+                const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+                const url = URL.createObjectURL(blob);
+
+                const link = document.createElement('a');
+                link.href = url;
+                link.download = '勤務サマリー.csv';
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                URL.revokeObjectURL(url);
+
+                showMsg('サマリーCSVを出力しました');
+            } catch (e) {
+                debug('サマリーCSV出力エラー: ' + e);
+                showMsg('サマリーCSV出力に失敗しました', true);
+            }
+        }
+
 
         // 管理者CSV出力
         function exportAdminCSV() {
