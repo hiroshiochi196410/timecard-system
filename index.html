@@ -3721,12 +3721,165 @@ ReactDOM.render(/*#__PURE__*/React.createElement(TimeCardApp, null), document.ge
                             return;
                         }
 
-                        const headers = lines[0].split(',').map(h => h.trim());
+                        // 区切り文字を自動判定（CSV:カンマ / TSV:タブ）
+                        const delimiter = lines[0].includes('	') ? '	' : ',';
+
+                        // 行を分割（カンマ区切り時のみ簡易クォート対応）
+                        const splitLine = (line) => {
+                            if (delimiter !== ',') return line.split(delimiter).map(v => v.trim());
+                            const out = [];
+                            let cur = '';
+                            let inQuotes = false;
+                            for (let i = 0; i < line.length; i++) {
+                                const ch = line[i];
+                                if (ch === '"') {
+                                    if (inQuotes && line[i + 1] === '"') { cur += '"'; i++; }
+                                    else { inQuotes = !inQuotes; }
+                                    continue;
+                                }
+                                if (ch === ',' && !inQuotes) { out.push(cur.trim()); cur = ''; continue; }
+                                cur += ch;
+                            }
+                            out.push(cur.trim());
+                            return out;
+                        };
+
+                        const headers = splitLine(lines[0]).map(h => h.trim());
                         const previewData = [];
                         const errors = [];
 
+                        // 取り込み形式判定：打刻ログ（種別/時刻がある）なら日別（出勤/退勤）に集計してから取り込み
+                        const isLogFormat = headers.includes('種別') && headers.includes('時刻') &&
+                                            (headers.includes('社員コード') || headers.includes('社員番号') || headers.includes('従業員番号'));
+
+                        const normalizeDate = (s) => {
+                            const v = String(s || '').trim();
+                            if (/^\d{8}$/.test(v)) return v.slice(0,4) + '-' + v.slice(4,6) + '-' + v.slice(6,8);
+                            const m = v.match(/^(\d{4})[-\/](\d{1,2})[-\/](\d{1,2})$/);
+                            if (m) {
+                                const yyyy = m[1];
+                                const mm = ('0' + m[2]).slice(-2);
+                                const dd = ('0' + m[3]).slice(-2);
+                                return `${yyyy}-${mm}-${dd}`;
+                            }
+                            return v;
+                        };
+
+                        const toSec = (t) => {
+                            const s = String(t || '').trim();
+                            const parts = s.split(':').map(x => parseInt(x, 10));
+                            if (parts.length < 2) return NaN;
+                            const hh = parts[0] || 0, mm = parts[1] || 0, ss = parts[2] || 0;
+                            return hh * 3600 + mm * 60 + ss;
+                        };
+
+                        if (isLogFormat) {
+                            const idxDate = headers.findIndex(h => h === '日付');
+                            const idxEmp  = headers.findIndex(h => h === '社員コード' || h === '社員番号' || h === '従業員番号');
+                            const idxName = headers.findIndex(h => h === '氏名' || h === '従業員名' || h === '名前');
+                            const idxTime = headers.findIndex(h => h === '時刻');
+                            const idxType = headers.findIndex(h => h === '種別');
+                            const idxDevice = headers.findIndex(h => h === 'デバイスID');
+
+                            const groups = new Map();
+
+                            for (let i = 1; i < lines.length; i++) {
+                                const values = splitLine(lines[i]).map(v => v.trim());
+                                const needIdx = Math.max(idxDate, idxEmp, idxTime, idxType);
+                                if (values.length <= needIdx) {
+                                    errors.push(`行${i + 1}: データが不足しています`);
+                                    continue;
+                                }
+
+                                const date = normalizeDate(values[idxDate]);
+                                const empNumberRaw = String(values[idxEmp] || '').trim();
+                                const name = (idxName >= 0) ? String(values[idxName] || '').trim() : '';
+                                const time = String(values[idxTime] || '').trim();
+                                const type = String(values[idxType] || '').trim();
+                                const deviceId = (idxDevice >= 0) ? String(values[idxDevice] || '').trim() : '';
+
+                                const key = `${date}||${empNumberRaw}`;
+
+                                if (!groups.has(key)) {
+                                    groups.set(key, {
+                                        date,
+                                        empNumberRaw,
+                                        name,
+                                        deviceId,
+                                        checkins: [],
+                                        checkouts: []
+                                    });
+                                }
+
+                                const g = groups.get(key);
+
+                                if (name && !g.name) g.name = name;
+                                if (deviceId) g.deviceId = deviceId;
+
+                                // 種別のゆらぎに対応
+                                const typeNorm = type === 'checkin' ? '出勤'
+                                              : type === 'checkout' ? '退勤'
+                                              : type === 'out' ? '外出'
+                                              : type === 'return' ? '戻り'
+                                              : type;
+
+                                if (typeNorm === '出勤') g.checkins.push(time);
+                                if (typeNorm === '退勤') g.checkouts.push(time);
+                            }
+
+                            // グループを勤務データに変換（A方式：最初の出勤＋最後の退勤）
+                            let lineNo = 1;
+                            for (const g of groups.values()) {
+                                const checkins = g.checkins
+                                    .map(t => ({ t, s: toSec(t) }))
+                                    .filter(x => !isNaN(x.s))
+                                    .sort((a,b) => a.s - b.s);
+                                const checkouts = g.checkouts
+                                    .map(t => ({ t, s: toSec(t) }))
+                                    .filter(x => !isNaN(x.s))
+                                    .sort((a,b) => a.s - b.s);
+
+                                const startTime = checkins.length ? checkins[0].t : '';
+                                const endTime = checkouts.length ? checkouts[checkouts.length - 1].t : '';
+
+                                if (!startTime || !endTime) {
+                                    errors.push(`日付${g.date} 社員${g.empNumberRaw}: 出勤/退勤が不足しています`);
+                                    continue;
+                                }
+
+                                // 従業員の存在確認（ゼロ埋めありなし両対応）
+                                const empNumber = g.empNumberRaw;
+                                const employee = employees.find(e =>
+                                    e.employeeNumber === empNumber ||
+                                    String(e.employeeNumber).replace(/^0+/, '') === String(empNumber).replace(/^0+/, '') ||
+                                    ('0' + String(e.employeeNumber)).slice(-4) === ('0' + String(empNumber)).slice(-4)
+                                );
+
+                                if (!employee) {
+                                    errors.push(`日付${g.date} 社員${g.empNumberRaw}: 従業員が見つかりません`);
+                                    continue;
+                                }
+
+                                previewData.push({
+                                    lineNumber: lineNo++,
+                                    date: g.date,
+                                    employee,
+                                    startTime: /^\d{2}:\d{2}:\d{2}$/.test(startTime) ? startTime.substring(0,5) : startTime,
+                                    endTime: /^\d{2}:\d{2}:\d{2}$/.test(endTime) ? endTime.substring(0,5) : endTime,
+                                    breakTime: 100,
+                                    leaveType: 'none',
+                                    leaveHours: 0
+                                });
+                            }
+
+                            setCSVPreviewData(previewData);
+                            setCSVErrors(errors);
+                            setShowCSVPreview(true);
+                            return;
+                        }
+
                         for (let i = 1; i < lines.length; i++) {
-                            const values = lines[i].split(',').map(v => v.trim());
+                            const values = splitLine(lines[i]).map(v => v.trim());
                             
                             // 基本的な必須項目チェック
                             if (values.length < 4) {
@@ -3759,21 +3912,11 @@ ReactDOM.render(/*#__PURE__*/React.createElement(TimeCardApp, null), document.ge
                                 date = date.replace(/\//g, '-');
                             }
 
-                            // 日付フォーマットチェック（YYYY-MM-DD / YYYY/MM/DD / YYYYMMDD を許容）
-                            let normalizedDate = String(date || '').trim();
-                            if (/^\d{8}$/.test(normalizedDate)) {
-                                normalizedDate = normalizedDate.replace(/^(\d{4})(\d{2})(\d{2})$/, '$1-$2-$3');
-                            } else if (/^\d{4}\/\d{2}\/\d{2}$/.test(normalizedDate)) {
-                                normalizedDate = normalizedDate.replace(/\//g, '-');
-                            }
-
-                            if (!/^\d{4}-\d{2}-\d{2}$/.test(normalizedDate)) {
-                                errors.push(`行${i + 1}: 日付のフォーマットが不正です（YYYY-MM-DD / YYYY/MM/DD / YYYYMMDD で入力）`);
+                            // 日付フォーマットチェック
+                            if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+                                errors.push(`行${i + 1}: 日付のフォーマットが不正です（YYYY-MM-DD または YYYY/MM/DD 形式で入力）`);
                                 continue;
                             }
-
-                            // 以降は正規化済みの日付を使う
-                            date = normalizedDate;
 
                             // 時刻フォーマットの正規化（HH:MM:SS → HH:MM）
                             if (/^\d{2}:\d{2}:\d{2}$/.test(startTime)) {
