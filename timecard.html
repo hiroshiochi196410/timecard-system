@@ -800,6 +800,11 @@
         // デバイス情報保存
         function saveDeviceInfo(empno, empInfo) {
             try {
+                if (!isLocalStorageAvailable()) {
+                    console.error('LocalStorageが利用できません');
+                    return false;
+                }
+
                 var deviceInfo = {
                     deviceId: deviceId,
                     employeeNumber: empno,
@@ -807,10 +812,20 @@
                     employeeDept: empInfo.dept,
                     registeredAt: new Date().toISOString()
                 };
+                
                 localStorage.setItem('unified-timecard-device', JSON.stringify(deviceInfo));
-                debug('デバイス登録完了: ' + empInfo.name);
+                
+                // 保存確認
+                var saved = localStorage.getItem('unified-timecard-device');
+                if (!saved) {
+                    console.error('保存したデータが読み込めません');
+                    return false;
+                }
+                
+                debug('デバイス登録完了: ' + empInfo.name + ' (社員番号: ' + empno + ')');
                 return true;
             } catch (e) {
+                console.error('デバイス保存エラー:', e);
                 debug('デバイス保存エラー: ' + e.message);
                 return false;
             }
@@ -852,35 +867,79 @@
 
         // デバイス登録処理
         function registerDevice() {
-            var empno = document.getElementById('setupEmpno').value.trim();
-            
-            if (!empno || empno.length !== 4) {
-                showMsg('社員番号4桁を入力してください', true);
-                return;
-            }
+            try {
+                var empno = document.getElementById('setupEmpno').value.trim();
+                
+                // バリデーション強化
+                if (!empno) {
+                    showMsg('❌ 社員番号を入力してください', true);
+                    return;
+                }
 
-            var empInfo = employees[empno];
-            if (!empInfo) {
-                showMsg('社員番号が見つかりません', true);
-                return;
-            }
+                // 全角数字チェック
+                if (/[０-９]/.test(empno)) {
+                    showMsg('❌ 社員番号は半角数字で入力してください', true);
+                    return;
+                }
 
-            if (empInfo.status === 'retired') {
-                showMsg(`${empInfo.name}さんは退職済みです（退職日: ${empInfo.retireDate}）`, true);
-                return;
-            }
+                if (empno.length !== 4) {
+                    showMsg('❌ 社員番号は4桁で入力してください（現在: ' + empno.length + '桁）', true);
+                    return;
+                }
 
-            if (empInfo.status !== 'active') {
-                showMsg('現在在籍していない社員番号です', true);
-                return;
-            }
+                // LocalStorage動作確認
+                if (!isLocalStorageAvailable()) {
+                    showMsg('❌ データ保存機能が利用できません', true);
+                    alert('お使いのブラウザではデータ保存機能が利用できません。\n\n以下を確認してください：\n・プライベートモード（シークレットモード）を使用していないか\n・ブラウザのCookie/ストレージ設定が有効か\n・ブラウザのバージョンが最新か');
+                    return;
+                }
 
-            if (saveDeviceInfo(empno, empInfo)) {
-                currentUser = getDeviceInfo();
-                showMainScreen();
-                showMsg(empInfo.name + 'さんのデバイスを登録しました', false);
-            } else {
-                showMsg('デバイス登録に失敗しました', true);
+                var empInfo = employees[empno];
+                if (!empInfo) {
+                    showMsg('❌ 社員番号 ' + empno + ' が見つかりません', true);
+                    debug('未登録社員番号: ' + empno);
+                    return;
+                }
+
+                if (empInfo.status === 'retired') {
+                    showMsg(`❌ ${empInfo.name}さんは退職済みです（退職日: ${empInfo.retireDate}）`, true);
+                    return;
+                }
+
+                if (empInfo.status !== 'active') {
+                    showMsg('❌ 現在在籍していない社員番号です', true);
+                    return;
+                }
+
+                // 保存実行
+                var saveResult = saveDeviceInfo(empno, empInfo);
+                if (saveResult) {
+                    currentUser = getDeviceInfo();
+                    showMainScreen();
+                    showMsg('✅ ' + empInfo.name + 'さんのデバイスを登録しました', false);
+                    debug('デバイス登録成功: ' + empno + ' - ' + empInfo.name);
+                } else {
+                    showMsg('❌ デバイス登録に失敗しました', true);
+                    alert('デバイス登録に失敗しました。\n\n以下を確認してください：\n・ブラウザのストレージ容量が十分か\n・プライベートモードを使用していないか\n\n問題が解決しない場合は管理者にお問い合わせください。');
+                }
+            } catch (error) {
+                console.error('デバイス登録エラー:', error);
+                showMsg('❌ 予期しないエラーが発生しました', true);
+                alert('予期しないエラーが発生しました。\n\nエラー詳細: ' + error.message + '\n\n管理者にお問い合わせください。');
+                debug('デバイス登録エラー: ' + error.message);
+            }
+        }
+
+        // LocalStorage利用可能性チェック
+        function isLocalStorageAvailable() {
+            try {
+                var testKey = '__localStorage_test__';
+                localStorage.setItem(testKey, 'test');
+                localStorage.removeItem(testKey);
+                return true;
+            } catch (e) {
+                console.error('LocalStorage利用不可:', e);
+                return false;
             }
         }
 
