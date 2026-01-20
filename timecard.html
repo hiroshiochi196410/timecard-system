@@ -410,8 +410,8 @@
 
         <!-- モード切り替え -->
         <div class="mode-toggle">
-            <button class="toggle-btn active" onclick="switchMode('employee')">👤 従業員モード</button>
-            <button class="toggle-btn" onclick="requestAdminAccess()">📊 管理者モード</button>
+            <button class="toggle-btn active" id="employeeModeBtn">👤 従業員モード</button>
+            <button class="toggle-btn" id="adminModeBtn">📊 管理者モード</button>
         </div>
 
         <!-- 管理者認証ダイアログ -->
@@ -693,56 +693,55 @@
             '3082': { name: '中田 隆三', dept: '配達', status: 'active', hireDate: '2021-04-01' },
             '3093': { name: '中元 一巳', dept: '配達', status: 'active', hireDate: '2020-08-01' },
 
+            // 管理部
+            '1099': { name: '東広島', dept: '管理部', status: 'active', hireDate: '2026-01-19' },
+
             // 退職者（テスト用）
             '0099': { name: '退職者A', dept: '本部', status: 'retired', hireDate: '2018-04-01', retireDate: '2024-12-31' }
         };
 
-        // LocalStorageから従業員データを読み込んでマージ
-        function loadEmployeesFromStorage() {
+        // LocalStorage + Google Sheetsから従業員データを読み込んでマージ
+        async function loadEmployeesFromStorage() {
             try {
+                // 1. ハードコードされたデフォルトデータから開始
+                var merged = Object.assign({}, defaultEmployees);
+                var localCount = 0;
+                var sheetsCount = 0;
+                
+                // 2. LocalStorageから読み込み
                 var savedEmployees = localStorage.getItem('timecard_employees');
-                if (!savedEmployees) {
-                    debug('LocalStorageに従業員データなし - デフォルトデータを使用');
-                    return defaultEmployees;
-                }
-
-                var employeeArray = JSON.parse(savedEmployees);
-                if (!Array.isArray(employeeArray)) {
-                    debug('LocalStorageの従業員データが不正な形式');
-                    return defaultEmployees;
-                }
-
-                // 配列形式をオブジェクト形式に変換（employeeNumberをキーに）
-                var merged = Object.assign({}, defaultEmployees); // デフォルトデータをコピー
-                var addedCount = 0;
-                var updatedCount = 0;
-
-                employeeArray.forEach(function(emp) {
-                    if (emp.employeeNumber) {
-                        // 従業員番号を4桁にパディング（0101など）
-                        var empNum = String(emp.employeeNumber).padStart(4, '0');
-                        
-                        var empData = {
-                            name: emp.name || '名前未設定',
-                            dept: emp.dept || 'その他',
-                            status: 'active', // LocalStorageから読み込んだ従業員はアクティブとみなす
-                            hireDate: emp.hireDate || new Date().toISOString().split('T')[0]
-                        };
-
-                        if (merged[empNum]) {
-                            updatedCount++;
-                        } else {
-                            addedCount++;
-                        }
-                        
-                        merged[empNum] = empData;
+                if (savedEmployees) {
+                    var employeeArray = JSON.parse(savedEmployees);
+                    if (Array.isArray(employeeArray)) {
+                        employeeArray.forEach(function(emp) {
+                            if (emp.employeeNumber) {
+                                var empNum = String(emp.employeeNumber).padStart(4, '0');
+                                merged[empNum] = {
+                                    name: emp.name || '名前未設定',
+                                    dept: emp.dept || 'その他',
+                                    status: 'active',
+                                    hireDate: emp.hireDate || new Date().toISOString().split('T')[0]
+                                };
+                                localCount++;
+                            }
+                        });
+                        debug('LocalStorageから従業員データ: ' + localCount + '件');
                     }
-                });
-
-                if (addedCount > 0 || updatedCount > 0) {
-                    debug('LocalStorageから従業員データを統合: 追加' + addedCount + '件, 更新' + updatedCount + '件');
                 }
-
+                
+                // 3. Google Sheetsから読み込み（最優先）
+                var sheetsEmployees = await loadEmployeesFromSheets();
+                if (sheetsEmployees) {
+                    Object.keys(sheetsEmployees).forEach(function(empNum) {
+                        merged[empNum] = sheetsEmployees[empNum];
+                        sheetsCount++;
+                    });
+                    debug('Google Sheetsから従業員データ: ' + sheetsCount + '件');
+                }
+                
+                var totalCount = Object.keys(merged).length;
+                debug('従業員データ統合完了: 合計' + totalCount + '件（デフォルト+LS:' + localCount + '件 + Sheets:' + sheetsCount + '件）');
+                
                 return merged;
             } catch (e) {
                 console.error('従業員データ読み込みエラー:', e);
@@ -752,7 +751,7 @@
         }
 
         // 従業員データを初期化（起動時に実行）
-        var employees = loadEmployeesFromStorage();
+        var employees = {}; // 初期は空、非同期で読み込む
 
         // ===== 管理者認証機能 =====
         const ADMIN_PASSWORD = 'admin2025'; // 管理者パスワード（要変更）
@@ -809,7 +808,7 @@
         }
 
         // モード切り替え（認証チェック追加）
-        function switchMode(mode) {
+        async function switchMode(mode) {
             const employeeMode = document.getElementById('employeeMode');
             const adminMode = document.getElementById('adminMode');
             const toggleBtns = document.querySelectorAll('.toggle-btn');
@@ -825,12 +824,12 @@
                 employeeMode.classList.add('active');
                 adminMode.classList.remove('active');
                 toggleBtns[0].classList.add('active');
-                checkAutoLogin();
+                await checkAutoLogin();
             } else if (mode === 'admin') {
                 employeeMode.classList.remove('active');
                 adminMode.classList.add('active');
                 toggleBtns[1].classList.add('active');
-                refreshAdminData();
+                await refreshAdminData();
                 setAdminView(adminView || 'log');
                 debug('管理者モードに切り替え');
             }
@@ -1004,9 +1003,9 @@
         }
 
         // 自動ログインチェック
-        function checkAutoLogin() {
-            // 従業員データを再読み込み（LocalStorageから最新データを取得）
-            employees = loadEmployeesFromStorage();
+        async function checkAutoLogin() {
+            // 従業員データを再読み込み（LocalStorage + Google Sheetsから最新データを取得）
+            employees = await loadEmployeesFromStorage();
             
             deviceId = localStorage.getItem('unified-timecard-device-id');
             if (!deviceId) {
@@ -1058,7 +1057,32 @@
         }
 
         // Google Sheets API設定
+        // ===== 従業員データ（LocalStorage + Google Sheets統合） =====
+        
         const SHEETS_API_URL = 'https://script.google.com/macros/s/AKfycbw5OADPzxalSf2Flc9Rs8Z-5OL0H03pkq8r2cj8ktN4qf0GdUrTbuZjf9h7v9pTIcLb/exec';
+
+        // Google Sheetsから従業員マスタを読み込む
+        async function loadEmployeesFromSheets() {
+            try {
+                debug('Google Sheetsから従業員マスタを読み込み中...');
+                const response = await fetch(SHEETS_API_URL + '?action=getEmployees', {
+                    method: 'GET',
+                    mode: 'cors'
+                });
+                const result = await response.json();
+                
+                if (result.success && result.data) {
+                    debug('Google Sheetsから従業員データ取得: ' + result.count + '件');
+                    return result.data;
+                } else {
+                    debug('Google Sheets従業員取得失敗: ' + (result.error || '不明'));
+                    return null;
+                }
+            } catch (e) {
+                debug('Google Sheets従業員取得エラー: ' + e.message);
+                return null;
+            }
+        }
 
         // Google Sheetsにデータ送信
         function sendToSheets(record) {
@@ -1280,9 +1304,9 @@
         // ===== 管理者モード機能 =====
 
         // 管理者データ更新
-        function refreshAdminData() {
-            // 従業員データを再読み込み（LocalStorageから最新データを取得）
-            employees = loadEmployeesFromStorage();
+        async function refreshAdminData() {
+            // 従業員データを再読み込み（LocalStorage + Google Sheetsから最新データを取得）
+            employees = await loadEmployeesFromStorage();
             debug('従業員データを再読み込み');
             
             loadData();
@@ -1744,7 +1768,7 @@
 
         // ===== 初期化 =====
 
-        document.addEventListener('DOMContentLoaded', function() {
+        document.addEventListener('DOMContentLoaded', async function() {
             debug('統合アプリ開始');
             
             // データ読み込み
@@ -1792,8 +1816,24 @@
                 });
             }
             
+            // モード切り替えボタンのイベントリスナー
+            const employeeModeBtn = document.getElementById('employeeModeBtn');
+            const adminModeBtn = document.getElementById('adminModeBtn');
+            
+            if (employeeModeBtn) {
+                employeeModeBtn.addEventListener('click', function() {
+                    switchMode('employee');
+                });
+            }
+            
+            if (adminModeBtn) {
+                adminModeBtn.addEventListener('click', function() {
+                    requestAdminAccess();
+                });
+            }
+            
             // 従業員モードで開始
-            switchMode('employee');
+            await switchMode('employee');
         });
     </script>
 </body>
