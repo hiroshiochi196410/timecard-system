@@ -635,6 +635,64 @@
 
             </div>
 
+            <!-- 勤怠手動入力 -->
+            <div class="card">
+                <h2 class="section-title">✏️ 勤怠手動入力</h2>
+                <div class="controls">
+                    <div class="control-group">
+                        <label class="control-label">📅 日付</label>
+                        <input type="date" id="manualDate" class="control-input">
+                    </div>
+                    <div class="control-group">
+                        <label class="control-label">👤 社員番号</label>
+                        <input type="text" id="manualEmpNo" class="control-input" placeholder="0000" maxlength="4">
+                    </div>
+                    <div class="control-group">
+                        <label class="control-label">📋 種別</label>
+                        <select id="manualType" class="control-input" onchange="handleManualTypeChange()">
+                            <option value="normal">通常勤務</option>
+                            <option value="paid_leave_full">有休（全日）</option>
+                            <option value="paid_leave_am">有休（午前半休）</option>
+                            <option value="paid_leave_pm">有休（午後半休）</option>
+                            <option value="holiday_work">休日出勤</option>
+                            <option value="absence">欠勤</option>
+                        </select>
+                    </div>
+                </div>
+                <div id="manualTimeInputs" class="controls">
+                    <div class="control-group">
+                        <label class="control-label">🕐 出勤</label>
+                        <input type="time" id="manualCheckin" class="control-input">
+                    </div>
+                    <div class="control-group">
+                        <label class="control-label">🕔 退勤</label>
+                        <input type="time" id="manualCheckout" class="control-input">
+                    </div>
+                    <div class="control-group">
+                        <label class="control-label">　</label>
+                        <button class="btn btn-success" onclick="saveManualAttendance()">💾 記録を保存</button>
+                    </div>
+                </div>
+                <div id="manualNote" style="margin-top:10px; padding:10px; background:#fef3c7; border-radius:8px; font-size:14px; display:none;">
+                    <strong>📝 備考：</strong><span id="manualNoteText"></span>
+                </div>
+            </div>
+
+            <div class="card">
+                <h2 class="section-title">📥 CSV読み込み</h2>
+                <div style="margin-bottom: 15px;">
+                    <p style="margin-bottom: 10px; color: #64748b;">CSVファイル形式：日付,社員番号,出勤,退勤,種別</p>
+                    <p style="margin-bottom: 10px; font-size: 14px; color: #64748b;">
+                        ・日付: YYYY-MM-DD または YYYY/MM/DD<br>
+                        ・時刻: HH:MM または HH:MM:SS<br>
+                        ・種別: normal（通常）/paid_leave_full（全日有休）/paid_leave_am（午前半休）/paid_leave_pm（午後半休）/holiday_work（休日出勤）/absence（欠勤）
+                    </p>
+                    <input type="file" id="csvFileInput" accept=".csv" style="display: none;" onchange="handleCSVUpload(event)">
+                    <button class="btn" onclick="document.getElementById('csvFileInput').click()">📂 CSVファイルを選択</button>
+                    <button class="btn btn-success" onclick="downloadSampleCSV()">📄 サンプルCSVダウンロード</button>
+                </div>
+            </div>
+
             <div class="card">
                 <h2 class="section-title">⚙️ データ管理</h2>
                 <div style="display: flex; gap: 15px; flex-wrap: wrap;">
@@ -1766,6 +1824,311 @@
             }
         }
 
+        // ===== 手動勤怠入力機能 =====
+
+        // 種別変更時の処理
+        function handleManualTypeChange() {
+            const type = document.getElementById('manualType').value;
+            const timeInputs = document.getElementById('manualTimeInputs');
+            const note = document.getElementById('manualNote');
+            const noteText = document.getElementById('manualNoteText');
+            
+            if (type === 'paid_leave_full' || type === 'absence') {
+                // 全日有休・欠勤の場合は時刻入力を非表示
+                timeInputs.style.display = 'none';
+                note.style.display = 'block';
+                if (type === 'paid_leave_full') {
+                    noteText.textContent = '終日有休のため、出退勤時刻は入力不要です';
+                } else {
+                    noteText.textContent = '欠勤のため、出退勤時刻は入力不要です';
+                }
+            } else if (type === 'paid_leave_am') {
+                // 午前半休
+                timeInputs.style.display = 'flex';
+                note.style.display = 'block';
+                noteText.textContent = '午前半休：午後から出勤する場合の出勤・退勤時刻を入力してください';
+                document.getElementById('manualCheckin').value = '13:00';
+            } else if (type === 'paid_leave_pm') {
+                // 午後半休
+                timeInputs.style.display = 'flex';
+                note.style.display = 'block';
+                noteText.textContent = '午後半休：午前のみ勤務する場合の出勤・退勤時刻を入力してください';
+                document.getElementById('manualCheckout').value = '12:00';
+            } else {
+                // 通常勤務・休日出勤
+                timeInputs.style.display = 'flex';
+                note.style.display = 'none';
+                document.getElementById('manualCheckin').value = '';
+                document.getElementById('manualCheckout').value = '';
+            }
+        }
+
+        // 手動勤怠データ保存
+        function saveManualAttendance() {
+            const date = document.getElementById('manualDate').value;
+            const empNo = document.getElementById('manualEmpNo').value.padStart(4, '0');
+            const type = document.getElementById('manualType').value;
+            const checkin = document.getElementById('manualCheckin').value;
+            const checkout = document.getElementById('manualCheckout').value;
+            
+            // バリデーション
+            if (!date) {
+                alert('日付を入力してください');
+                return;
+            }
+            if (!empNo) {
+                alert('社員番号を入力してください');
+                return;
+            }
+            if (!employees[empNo]) {
+                alert('社員番号 ' + empNo + ' は登録されていません');
+                return;
+            }
+            
+            // 通常勤務・半休・休日出勤の場合は出退勤時刻が必要
+            if ((type === 'normal' || type === 'paid_leave_am' || type === 'paid_leave_pm' || type === 'holiday_work') && 
+                (!checkin || !checkout)) {
+                alert('出勤・退勤時刻を入力してください');
+                return;
+            }
+            
+            const empInfo = employees[empNo];
+            
+            // 既存データをチェック（同日同社員の出勤/退勤レコードを削除）
+            data = data.filter(r => !(r.date === date && r.emp === empNo && (r.type === 'checkin' || r.type === 'checkout')));
+            
+            // レコード作成
+            const baseId = Date.now();
+            
+            if (type === 'paid_leave_full' || type === 'absence') {
+                // 全日有休・欠勤は記録のみ
+                const record = {
+                    id: baseId,
+                    emp: empNo,
+                    empName: empInfo.name,
+                    empDept: empInfo.dept,
+                    date: date,
+                    time: '00:00:00',
+                    type: type,
+                    timestamp: new Date().toISOString(),
+                    manual: true
+                };
+                data.push(record);
+            } else {
+                // 出勤レコード
+                const checkinRecord = {
+                    id: baseId,
+                    emp: empNo,
+                    empName: empInfo.name,
+                    empDept: empInfo.dept,
+                    date: date,
+                    time: checkin + ':00',
+                    type: type === 'paid_leave_am' ? 'checkin_pm_half' : 
+                          type === 'paid_leave_pm' ? 'checkin_am_half' :
+                          type === 'holiday_work' ? 'checkin_holiday' : 'checkin',
+                    timestamp: new Date(date + 'T' + checkin + ':00').toISOString(),
+                    manual: true,
+                    leaveType: type
+                };
+                
+                // 退勤レコード
+                const checkoutRecord = {
+                    id: baseId + 1,
+                    emp: empNo,
+                    empName: empInfo.name,
+                    empDept: empInfo.dept,
+                    date: date,
+                    time: checkout + ':00',
+                    type: type === 'paid_leave_am' ? 'checkout_pm_half' :
+                          type === 'paid_leave_pm' ? 'checkout_am_half' :
+                          type === 'holiday_work' ? 'checkout_holiday' : 'checkout',
+                    timestamp: new Date(date + 'T' + checkout + ':00').toISOString(),
+                    manual: true,
+                    leaveType: type
+                };
+                
+                data.push(checkinRecord);
+                data.push(checkoutRecord);
+            }
+            
+            saveData();
+            alert('✅ 勤怠データを保存しました');
+            
+            // フォームをクリア
+            document.getElementById('manualCheckin').value = '';
+            document.getElementById('manualCheckout').value = '';
+            document.getElementById('manualType').value = 'normal';
+            handleManualTypeChange();
+            
+            // 表示を更新
+            filterRecords();
+        }
+
+        // ===== CSV読み込み機能 =====
+
+        // CSV読み込み処理
+        function handleCSVUpload(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    const text = e.target.result;
+                    parseAndImportCSV(text);
+                } catch (error) {
+                    console.error('CSV読み込みエラー:', error);
+                    alert('❌ CSVファイルの読み込みに失敗しました: ' + error.message);
+                }
+            };
+            reader.readAsText(file, 'UTF-8');
+            
+            // ファイル選択をリセット
+            event.target.value = '';
+        }
+
+        // CSV解析とインポート
+        function parseAndImportCSV(text) {
+            const lines = text.trim().split('\n');
+            if (lines.length < 2) {
+                alert('❌ CSVファイルが空です');
+                return;
+            }
+            
+            let importCount = 0;
+            let errorCount = 0;
+            const errors = [];
+            
+            // ヘッダー行をスキップ（1行目）
+            for (let i = 1; i < lines.length; i++) {
+                const line = lines[i].trim();
+                if (!line) continue;
+                
+                const cols = line.split(',');
+                if (cols.length < 4) {
+                    errors.push(`行${i + 1}: 列数が不足しています`);
+                    errorCount++;
+                    continue;
+                }
+                
+                // データ取得
+                let date = cols[0].trim().replace(/\//g, '-'); // YYYY/MM/DD → YYYY-MM-DD
+                const empNo = cols[1].trim().padStart(4, '0');
+                let checkin = cols[2].trim();
+                let checkout = cols[3].trim();
+                const type = cols[4] ? cols[4].trim() : 'normal';
+                
+                // 時刻のフォーマット調整（HH:MM:SS → HH:MM）
+                if (checkin && checkin.split(':').length === 3) {
+                    checkin = checkin.substring(0, 5); // HH:MM
+                }
+                if (checkout && checkout.split(':').length === 3) {
+                    checkout = checkout.substring(0, 5);
+                }
+                
+                // 社員存在チェック
+                if (!employees[empNo]) {
+                    errors.push(`行${i + 1}: 社員番号 ${empNo} が登録されていません`);
+                    errorCount++;
+                    continue;
+                }
+                
+                const empInfo = employees[empNo];
+                
+                // 既存データを削除（同日同社員）
+                data = data.filter(r => !(r.date === date && r.emp === empNo && (r.type === 'checkin' || r.type === 'checkout' || r.type.includes('half') || r.type.includes('holiday'))));
+                
+                const baseId = Date.now() + i * 10;
+                
+                // データ作成
+                if (type === 'paid_leave_full' || type === 'absence') {
+                    // 全日有休・欠勤
+                    const record = {
+                        id: baseId,
+                        emp: empNo,
+                        empName: empInfo.name,
+                        empDept: empInfo.dept,
+                        date: date,
+                        time: '00:00:00',
+                        type: type,
+                        timestamp: new Date().toISOString(),
+                        manual: true,
+                        source: 'csv'
+                    };
+                    data.push(record);
+                } else if (checkin && checkout) {
+                    // 通常勤務・半休・休日出勤
+                    const checkinRecord = {
+                        id: baseId,
+                        emp: empNo,
+                        empName: empInfo.name,
+                        empDept: empInfo.dept,
+                        date: date,
+                        time: checkin + ':00',
+                        type: type === 'paid_leave_am' ? 'checkin_pm_half' :
+                              type === 'paid_leave_pm' ? 'checkin_am_half' :
+                              type === 'holiday_work' ? 'checkin_holiday' : 'checkin',
+                        timestamp: new Date(date + 'T' + checkin + ':00').toISOString(),
+                        manual: true,
+                        source: 'csv',
+                        leaveType: type
+                    };
+                    
+                    const checkoutRecord = {
+                        id: baseId + 1,
+                        emp: empNo,
+                        empName: empInfo.name,
+                        empDept: empInfo.dept,
+                        date: date,
+                        time: checkout + ':00',
+                        type: type === 'paid_leave_am' ? 'checkout_pm_half' :
+                              type === 'paid_leave_pm' ? 'checkout_am_half' :
+                              type === 'holiday_work' ? 'checkout_holiday' : 'checkout',
+                        timestamp: new Date(date + 'T' + checkout + ':00').toISOString(),
+                        manual: true,
+                        source: 'csv',
+                        leaveType: type
+                    };
+                    
+                    data.push(checkinRecord);
+                    data.push(checkoutRecord);
+                }
+                
+                importCount++;
+            }
+            
+            saveData();
+            filterRecords();
+            
+            let message = `✅ CSV読み込み完了\n\n成功: ${importCount}件`;
+            if (errorCount > 0) {
+                message += `\nエラー: ${errorCount}件\n\n【エラー詳細】\n` + errors.slice(0, 5).join('\n');
+                if (errors.length > 5) {
+                    message += `\n... 他${errors.length - 5}件`;
+                }
+            }
+            
+            alert(message);
+        }
+
+        // サンプルCSVダウンロード
+        function downloadSampleCSV() {
+            const today = new Date().toISOString().split('T')[0];
+            const csvContent = `日付,社員番号,出勤,退勤,種別
+${today},0078,08:00,17:00,normal
+${today},1048,09:00,18:00,normal
+${today},2075,08:30,17:30,paid_leave_am
+${today},3089,,,paid_leave_full`;
+            
+            const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(blob);
+            link.download = 'サンプル勤怠データ.csv';
+            link.click();
+            
+            alert('📄 サンプルCSVファイルをダウンロードしました');
+        }
+
         // ===== 初期化 =====
 
         document.addEventListener('DOMContentLoaded', async function() {
@@ -1784,6 +2147,12 @@
             const dateFilterEl = document.getElementById('dateFilter');
             if (dateFilterEl) {
                 dateFilterEl.value = today;
+            }
+            
+            // 手動入力フォームの日付も設定
+            const manualDateEl = document.getElementById('manualDate');
+            if (manualDateEl) {
+                manualDateEl.value = today;
             }
             
             // ボタンイベント設定

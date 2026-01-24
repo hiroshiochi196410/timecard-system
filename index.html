@@ -942,11 +942,7 @@ var TimeCardApp = function TimeCardApp() {
         return e.id !== id;
       }).id);
     }
-    if (inputEmployeeId === id) {
-      setInputEmployeeId(employees.find(function (e) {
-        return e.id !== id;
-      }).id);
-    }
+    // inputEmployeeIdは使用しないため削除
   };
 
   // 従業員編集を開始
@@ -1828,9 +1824,7 @@ ReactDOM.render(/*#__PURE__*/React.createElement(TimeCardApp, null), document.ge
                 if (selectedEmployeeId === id) {
                     setSelectedEmployeeId(employees.find(e => e.id !== id).id);
                 }
-                if (inputEmployeeId === id) {
-                    setInputEmployeeId(employees.find(e => e.id !== id).id);
-                }
+                // inputEmployeeIdは使用しないため削除
             };
 
             // 従業員編集を開始
@@ -2029,8 +2023,8 @@ ReactDOM.render(/*#__PURE__*/React.createElement(TimeCardApp, null), document.ge
             };
 
             const addRecord = () => {
-                alert('保存ボタンがクリックされました');
-                console.log('selectedEmployeeId:', inputEmployeeId);
+                console.log('勤怠記録追加開始');
+                console.log('selectedEmployeeId:', selectedEmployeeId);
                 console.log('currentDate:', currentDate);
                 console.log('startTime:', startTime);
                 console.log('endTime:', endTime);
@@ -2038,11 +2032,11 @@ ReactDOM.render(/*#__PURE__*/React.createElement(TimeCardApp, null), document.ge
                 
                 // 全日有休の場合は時間入力不要
                 if (leaveType !== 'full' && (!startTime || !endTime)) {
-                    alert('エラー: 出勤時刻または退勤時刻が入力されていません');
+                    alert('❌ 出勤時刻または退勤時刻を入力してください');
                     return;
                 }
                 if (!selectedEmployeeId) {
-                    alert('エラー: 従業員が選択されていません (inputEmployeeId=' + inputEmployeeId + ')');
+                    alert('❌ 従業員が選択されていません');
                     return;
                 }
                 
@@ -2142,6 +2136,10 @@ ReactDOM.render(/*#__PURE__*/React.createElement(TimeCardApp, null), document.ge
                         new Date(b.date) - new Date(a.date)
                     ));
                 }
+                
+                // 成功メッセージを表示
+                const employee = employees.find(e => e.id === selectedEmployeeId);
+                alert(`✅ ${employee?.name}さんの${currentDate}の勤怠記録を保存しました！`);
                 
                 setCurrentDate(new Date().toISOString().split('T')[0]);
                 setStartTime('08:00');
