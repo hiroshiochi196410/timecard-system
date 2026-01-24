@@ -1095,82 +1095,6 @@ ReactDOM.render(/*#__PURE__*/React.createElement(TimeCardApp, null), document.ge
 <div id="root"></div>
 <script type="text/babel">
         const { useState, useEffect } = React;
-            // ========== セキュリティ機能 ==========
-            
-            // 簡易暗号化（Base64 + XOR）- 開発者ツールでの直接閲覧を防ぐ
-            const encryptData = (data, key = 'futaba-sankyo-2025') => {
-                const jsonStr = JSON.stringify(data);
-                let encrypted = '';
-                for (let i = 0; i < jsonStr.length; i++) {
-                    encrypted += String.fromCharCode(
-                        jsonStr.charCodeAt(i) ^ key.charCodeAt(i % key.length)
-                    );
-                }
-                return btoa(encrypted); // Base64エンコード
-            };
-            
-            const decryptData = (encryptedStr, key = 'futaba-sankyo-2025') => {
-                try {
-                    const encrypted = atob(encryptedStr); // Base64デコード
-                    let decrypted = '';
-                    for (let i = 0; i < encrypted.length; i++) {
-                        decrypted += String.fromCharCode(
-                            encrypted.charCodeAt(i) ^ key.charCodeAt(i % key.length)
-                        );
-                    }
-                    return JSON.parse(decrypted);
-                } catch (e) {
-                    console.error('復号化エラー:', e);
-                    return null;
-                }
-            };
-            
-            // 監査ログの記録
-            const addAuditLog = (action, details) => {
-                const logs = JSON.parse(localStorage.getItem('audit_logs') || '[]');
-                logs.push({
-                    timestamp: new Date().toISOString(),
-                    action,
-                    details,
-                    user: currentUser || 'システム'
-                });
-                // 最新1000件のみ保持
-                if (logs.length > 1000) logs.shift();
-                localStorage.setItem('audit_logs', JSON.stringify(logs));
-            };
-            
-            // ログイン状態管理
-            const [currentUser, setCurrentUser] = useState(() => 
-                sessionStorage.getItem('current_user') || null
-            );
-            const [loginPassword, setLoginPassword] = useState('');
-            
-            // ログイン処理
-            const handleLogin = (password) => {
-                // 本番環境では必ずサーバー側で認証すること
-                // これは簡易的なデモ実装です
-                const correctPassword = 'futaba2025'; // ⚠️ 本番では使用不可
-                
-                if (password === correctPassword) {
-                    const user = 'システム管理者';
-                    setCurrentUser(user);
-                    sessionStorage.setItem('current_user', user);
-                    addAuditLog('ログイン', { user });
-                    return true;
-                }
-                return false;
-            };
-            
-            // ログアウト処理
-            const handleLogout = () => {
-                addAuditLog('ログアウト', { user: currentUser });
-                setCurrentUser(null);
-                sessionStorage.removeItem('current_user');
-            };
-            
-            // ==============================================
-            
-
 
         // アイコン（簡略版）
         const Clock = () => <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>;
@@ -1199,7 +1123,15 @@ ReactDOM.render(/*#__PURE__*/React.createElement(TimeCardApp, null), document.ge
                 }
             };
 
-            const [employees, setEmployees] = useState(() => 
+            
+            // ========== セキュリティ機能 ==========
+            const [currentUser, setCurrentUser] = useState(() => 
+                sessionStorage.getItem('current_user') || null
+            );
+            const [loginPassword, setLoginPassword] = useState('');
+            // ==============================================
+            
+const [employees, setEmployees] = useState(() => 
                 loadFromLocalStorage('timecard_employees', [
                     { 
                         id: 1, 
@@ -2346,7 +2278,7 @@ ReactDOM.render(/*#__PURE__*/React.createElement(TimeCardApp, null), document.ge
                 try {
                     // 残業時間は有休なしの場合のみ計算
                     if (editLeaveType === 'none' && editStartTime && editEndTime) {
-                        overtimeHours = calculateOvertimeHours(editStartTime, editEndTime, parseInt(editBreakTime), employeeIdForCalc, editDate, { instructedStartTime: editInstructedStartTime, breakTime: parseInt(editBreakTime) });
+                        overtimeHours = calculateOvertimeHours(editStartTime, editEndTime, parseInt(editBreakTime), employeeIdForCalc, editDate);
                         
                     }
                 } catch (error) {
@@ -2378,8 +2310,8 @@ ReactDOM.render(/*#__PURE__*/React.createElement(TimeCardApp, null), document.ge
                             isEarlyShift: editIsEarlyShift,
                             isLateShift: editIsLateShift,
                             instructedStartTime: editInstructedStartTime,
-                            supervisorApproved: record.supervisorApproved || false,
-                            managerApproved: record.managerApproved || false,
+                            supervisorApproved: r.supervisorApproved || false,
+                            managerApproved: r.managerApproved || false,
                             leaveType: editLeaveType,
                             leaveHours: editLeaveType === 'hour' ? parseFloat(editLeaveHours) : 0,
                             leaveDays,
@@ -2458,7 +2390,46 @@ ReactDOM.render(/*#__PURE__*/React.createElement(TimeCardApp, null), document.ge
                 }
             };
 
-            const getPayrollPeriodStats = (employeeId, year, month) => {
+            
+            // ========== セキュリティ関数 ==========
+            
+            // 監査ログの記録
+            const addAuditLog = (action, details) => {
+                const logs = JSON.parse(localStorage.getItem('audit_logs') || '[]');
+                logs.push({
+                    timestamp: new Date().toISOString(),
+                    action,
+                    details,
+                    user: currentUser || 'システム'
+                });
+                if (logs.length > 1000) logs.shift();
+                localStorage.setItem('audit_logs', JSON.stringify(logs));
+            };
+            
+            // ログイン処理
+            const handleLogin = (password) => {
+                const correctPassword = 'futaba2025';
+                
+                if (password === correctPassword) {
+                    const user = 'システム管理者';
+                    setCurrentUser(user);
+                    sessionStorage.setItem('current_user', user);
+                    addAuditLog('ログイン', { user });
+                    return true;
+                }
+                return false;
+            };
+            
+            // ログアウト処理
+            const handleLogout = () => {
+                addAuditLog('ログアウト', { user: currentUser });
+                setCurrentUser(null);
+                sessionStorage.removeItem('current_user');
+            };
+            
+            // ==============================================
+            
+const getPayrollPeriodStats = (employeeId, year, month) => {
                 const periodRecords = getPayrollPeriodRecords(employeeId, year, month);
                 const employee = employees.find(e => e.id === employeeId);
                 
@@ -2598,10 +2569,15 @@ ReactDOM.render(/*#__PURE__*/React.createElement(TimeCardApp, null), document.ge
                     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
                         <div className="bg-white rounded-2xl shadow-xl p-8 max-w-md w-full">
                             <div className="text-center mb-6">
+                                <div className="w-16 h-16 bg-indigo-600 rounded-full flex items-center justify-center mx-auto mb-4">
+                                    <svg className="w-10 h-10 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                                    </svg>
+                                </div>
                                 <h1 className="text-3xl font-bold text-gray-800 mb-2">
-                                    🔒 勤怠管理システム
+                                    勤怠管理システム
                                 </h1>
-                                <p className="text-gray-600">ログインしてください</p>
+                                <p className="text-gray-600">双葉三共株式会社</p>
                             </div>
                             
                             <div className="mb-6">
@@ -2617,13 +2593,14 @@ ReactDOM.render(/*#__PURE__*/React.createElement(TimeCardApp, null), document.ge
                                             if (handleLogin(loginPassword)) {
                                                 setLoginPassword('');
                                             } else {
-                                                alert('パスワードが正しくありません');
+                                                alert('❌ パスワードが正しくありません');
                                                 setLoginPassword('');
                                             }
                                         }
                                     }}
-                                    className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:border-indigo-500 focus:outline-none"
+                                    className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:border-indigo-500 focus:outline-none text-lg"
                                     placeholder="パスワードを入力"
+                                    autoFocus
                                 />
                             </div>
                             
@@ -2632,23 +2609,26 @@ ReactDOM.render(/*#__PURE__*/React.createElement(TimeCardApp, null), document.ge
                                     if (handleLogin(loginPassword)) {
                                         setLoginPassword('');
                                     } else {
-                                        alert('パスワードが正しくありません');
+                                        alert('❌ パスワードが正しくありません');
                                         setLoginPassword('');
                                     }
                                 }}
-                                className="w-full bg-indigo-600 text-white py-3 rounded-lg font-bold hover:bg-indigo-700 transition"
+                                className="w-full bg-indigo-600 text-white py-3 rounded-lg font-bold text-lg hover:bg-indigo-700 transition"
                             >
-                                ログイン
+                                🔓 ログイン
                             </button>
                             
-                            <div className="mt-6 p-4 bg-amber-50 border border-amber-200 rounded-lg">
-                                <p className="text-sm text-amber-800 font-semibold mb-1">
-                                    ⚠️ セキュリティに関する重要な注意
+                            <div className="mt-6 p-4 bg-amber-50 border-2 border-amber-200 rounded-lg">
+                                <p className="text-sm text-amber-800 font-semibold mb-2 flex items-center gap-2">
+                                    <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                                        <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                                    </svg>
+                                    セキュリティに関する注意
                                 </p>
                                 <ul className="text-xs text-amber-700 space-y-1">
-                                    <li>• デモ用パスワード: futaba2025</li>
-                                    <li>• 本番環境では必ずサーバー認証を実装してください</li>
-                                    <li>• 機密情報の取り扱いには十分注意してください</li>
+                                    <li>• デモ用パスワード: <span className="font-bold">futaba2025</span></li>
+                                    <li>• 本番環境では必ずパスワードを変更してください</li>
+                                    <li>• 社内ネットワーク限定での使用を推奨します</li>
                                 </ul>
                             </div>
                         </div>
