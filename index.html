@@ -1095,6 +1095,82 @@ ReactDOM.render(/*#__PURE__*/React.createElement(TimeCardApp, null), document.ge
 <div id="root"></div>
 <script type="text/babel">
         const { useState, useEffect } = React;
+            // ========== セキュリティ機能 ==========
+            
+            // 簡易暗号化（Base64 + XOR）- 開発者ツールでの直接閲覧を防ぐ
+            const encryptData = (data, key = 'futaba-sankyo-2025') => {
+                const jsonStr = JSON.stringify(data);
+                let encrypted = '';
+                for (let i = 0; i < jsonStr.length; i++) {
+                    encrypted += String.fromCharCode(
+                        jsonStr.charCodeAt(i) ^ key.charCodeAt(i % key.length)
+                    );
+                }
+                return btoa(encrypted); // Base64エンコード
+            };
+            
+            const decryptData = (encryptedStr, key = 'futaba-sankyo-2025') => {
+                try {
+                    const encrypted = atob(encryptedStr); // Base64デコード
+                    let decrypted = '';
+                    for (let i = 0; i < encrypted.length; i++) {
+                        decrypted += String.fromCharCode(
+                            encrypted.charCodeAt(i) ^ key.charCodeAt(i % key.length)
+                        );
+                    }
+                    return JSON.parse(decrypted);
+                } catch (e) {
+                    console.error('復号化エラー:', e);
+                    return null;
+                }
+            };
+            
+            // 監査ログの記録
+            const addAuditLog = (action, details) => {
+                const logs = JSON.parse(localStorage.getItem('audit_logs') || '[]');
+                logs.push({
+                    timestamp: new Date().toISOString(),
+                    action,
+                    details,
+                    user: currentUser || 'システム'
+                });
+                // 最新1000件のみ保持
+                if (logs.length > 1000) logs.shift();
+                localStorage.setItem('audit_logs', JSON.stringify(logs));
+            };
+            
+            // ログイン状態管理
+            const [currentUser, setCurrentUser] = useState(() => 
+                sessionStorage.getItem('current_user') || null
+            );
+            const [loginPassword, setLoginPassword] = useState('');
+            
+            // ログイン処理
+            const handleLogin = (password) => {
+                // 本番環境では必ずサーバー側で認証すること
+                // これは簡易的なデモ実装です
+                const correctPassword = 'futaba2025'; // ⚠️ 本番では使用不可
+                
+                if (password === correctPassword) {
+                    const user = 'システム管理者';
+                    setCurrentUser(user);
+                    sessionStorage.setItem('current_user', user);
+                    addAuditLog('ログイン', { user });
+                    return true;
+                }
+                return false;
+            };
+            
+            // ログアウト処理
+            const handleLogout = () => {
+                addAuditLog('ログアウト', { user: currentUser });
+                setCurrentUser(null);
+                sessionStorage.removeItem('current_user');
+            };
+            
+            // ==============================================
+            
+
 
         // アイコン（簡略版）
         const Clock = () => <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>;
@@ -2285,6 +2361,7 @@ ReactDOM.render(/*#__PURE__*/React.createElement(TimeCardApp, null), document.ge
                 } catch (error) {
                 }
 
+                addAuditLog('レコード更新', { recordId: editingRecordId, date: editDate });
                 alert('レコードを更新します');
                 setRecords(records.map(record => 
                     record.id === editingRecordId
@@ -2330,6 +2407,7 @@ ReactDOM.render(/*#__PURE__*/React.createElement(TimeCardApp, null), document.ge
 
             // 残業承認を切り替え
             const toggleOvertimeApproval = (id) => {
+                addAuditLog('レコード更新', { recordId: editingRecordId, date: editDate });
                 alert('レコードを更新します');
                 setRecords(records.map(record => 
                     record.id === id 
@@ -2513,7 +2591,72 @@ ReactDOM.render(/*#__PURE__*/React.createElement(TimeCardApp, null), document.ge
             const { startDate: payrollStartDate, endDate: payrollEndDate } = getPayrollPeriod(payrollYear, payrollMonth);
             const { startDate: calendarStartDate, endDate: calendarEndDate } = getCalendarPeriod(calendarYear, calendarMonth);
 
-            return (
+            
+            // ログイン画面
+            if (!currentUser) {
+                return (
+                    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
+                        <div className="bg-white rounded-2xl shadow-xl p-8 max-w-md w-full">
+                            <div className="text-center mb-6">
+                                <h1 className="text-3xl font-bold text-gray-800 mb-2">
+                                    🔒 勤怠管理システム
+                                </h1>
+                                <p className="text-gray-600">ログインしてください</p>
+                            </div>
+                            
+                            <div className="mb-6">
+                                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                                    パスワード
+                                </label>
+                                <input
+                                    type="password"
+                                    value={loginPassword}
+                                    onChange={(e) => setLoginPassword(e.target.value)}
+                                    onKeyPress={(e) => {
+                                        if (e.key === 'Enter') {
+                                            if (handleLogin(loginPassword)) {
+                                                setLoginPassword('');
+                                            } else {
+                                                alert('パスワードが正しくありません');
+                                                setLoginPassword('');
+                                            }
+                                        }
+                                    }}
+                                    className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:border-indigo-500 focus:outline-none"
+                                    placeholder="パスワードを入力"
+                                />
+                            </div>
+                            
+                            <button
+                                onClick={() => {
+                                    if (handleLogin(loginPassword)) {
+                                        setLoginPassword('');
+                                    } else {
+                                        alert('パスワードが正しくありません');
+                                        setLoginPassword('');
+                                    }
+                                }}
+                                className="w-full bg-indigo-600 text-white py-3 rounded-lg font-bold hover:bg-indigo-700 transition"
+                            >
+                                ログイン
+                            </button>
+                            
+                            <div className="mt-6 p-4 bg-amber-50 border border-amber-200 rounded-lg">
+                                <p className="text-sm text-amber-800 font-semibold mb-1">
+                                    ⚠️ セキュリティに関する重要な注意
+                                </p>
+                                <ul className="text-xs text-amber-700 space-y-1">
+                                    <li>• デモ用パスワード: futaba2025</li>
+                                    <li>• 本番環境では必ずサーバー認証を実装してください</li>
+                                    <li>• 機密情報の取り扱いには十分注意してください</li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                );
+            }
+            
+return (
                 <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-4">
                     <div className="max-w-7xl mx-auto">
                         <div className="bg-white rounded-2xl shadow-xl p-6 mb-6">
