@@ -2270,7 +2270,7 @@ ReactDOM.render(/*#__PURE__*/React.createElement(TimeCardApp, null), document.ge
                 try {
                     // 残業時間は有休なしの場合のみ計算
                     if (editLeaveType === 'none' && editStartTime && editEndTime) {
-                        overtimeHours = calculateOvertimeHours(editStartTime, editEndTime, parseInt(editBreakTime), employeeIdForCalc, editDate);
+                        overtimeHours = calculateOvertimeHours(editStartTime, editEndTime, parseInt(editBreakTime), employeeIdForCalc, editDate, { instructedStartTime: editInstructedStartTime, breakTime: parseInt(editBreakTime) });
                         
                     }
                 } catch (error) {
@@ -2301,8 +2301,8 @@ ReactDOM.render(/*#__PURE__*/React.createElement(TimeCardApp, null), document.ge
                             isEarlyShift: editIsEarlyShift,
                             isLateShift: editIsLateShift,
                             instructedStartTime: editInstructedStartTime,
-                            supervisorApproved: r.supervisorApproved || false,
-                            managerApproved: r.managerApproved || false,
+                            supervisorApproved: record.supervisorApproved || false,
+                            managerApproved: record.managerApproved || false,
                             leaveType: editLeaveType,
                             leaveHours: editLeaveType === 'hour' ? parseFloat(editLeaveHours) : 0,
                             leaveDays,
